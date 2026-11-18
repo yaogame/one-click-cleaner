@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<title>一键清理助手</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top" id="top">
+  <div class="brand">
+    <div class="logo">⌁</div>
+    <div>
+      <div class="title">一键清理助手</div>
+      <div class="sub" id="platformLine">macOS · Windows</div>
+    </div>
+  </div>
+  <div class="disk" id="disk"></div>
+  <div class="actions">
+    <button id="btnScan" class="btn">扫描</button>
+    <button id="btnDeep" class="btn" title="在主目录中查找大文件、node_modules 等项目依赖与构建产物">深度扫描</button>
+    <button id="btnClean" class="btn primary" disabled>一键清理</button>
+  </div>
+</header>
+
+<div class="progress" id="progress" hidden><div class="bar" id="progressBar"></div><span id="progressLabel"></span></div>
+
+<main>
+  <section class="summary" id="summary">
+    <h1>扫描电脑里能腾出来的空间</h1>
+    <p class="muted">覆盖系统缓存、日志、浏览器、AI 工具（Codex / Claude / Cursor …）、开发工具（Xcode / npm / Gradle / Docker …）、设计软件、聊天软件，以及自动发现的大目录。每一项都会实测占用，点击即可展开查看目录。</p>
+    <p class="muted">只有「可清理」的项目会默认勾选；「谨慎」需要你确认后手动勾选；「建议保留」和「手动检查」只展示，不会被一键清理。</p>
+    <button class="btn primary big" id="btnScan2">开始扫描</button>
+  </section>
+
+  <nav class="toolbar" id="toolbar" hidden>
+    <div class="tabs">
+      <button class="tab active" data-tab="items">清理项目</button>
+      <button class="tab" data-tab="tools">系统工具</button>
+    </div>
+    <div class="filters" id="filters">
+      <button class="chip active" data-f="all">全部</button>
+      <button class="chip" data-f="safe">可清理</button>
+      <button class="chip" data-f="caution">谨慎</button>
+      <button class="chip" data-f="keep">建议保留</button>
+      <button class="chip" data-f="review">手动检查</button>
+      <input id="search" class="search" placeholder="搜索名称或路径">
+    </div>
+    <label class="opt"><input type="checkbox" id="optTrash"> 移到废纸篓/回收站（可恢复，但不会立即释放空间）</label>
+  </nav>
+
+  <div id="admin" class="banner" hidden></div>
+  <div id="list"></div>
+  <div id="tools" hidden></div>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

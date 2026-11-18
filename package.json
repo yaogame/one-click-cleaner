@@ -1,0 +1,77 @@
+{
+  "name": "one-click-cleaner",
+  "productName": "一键清理助手",
+  "version": "1.0.0",
+  "description": "macOS / Windows 一键清理：缓存、日志、AI 工具、开发工具、浏览器，统计大小并可浏览目录",
+  "main": "src/main.js",
+  "author": "yaogame",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac dmg --arm64 --x64",
+    "dist:win": "electron-builder --win nsis portable --x64",
+    "dist:all": "electron-builder --mac dmg --arm64 --x64 --win nsis portable --x64"
+  },
+  "build": {
+    "appId": "com.yaogame.oneclickcleaner",
+    "productName": "一键清理助手",
+    "artifactName": "OneClickCleaner-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.png",
+      "target": [
+        "dmg"
+      ],
+      "identity": null,
+      "hardenedRuntime": false
+    },
+    "dmg": {
+      "title": "一键清理助手",
+      "contents": [
+        {
+          "x": 140,
+          "y": 180
+        },
+        {
+          "x": 400,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": false,
+      "executableName": "OneClickCleaner"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "OneClickCleaner-${version}-win-setup.${ext}",
+      "shortcutName": "一键清理助手"
+    },
+    "portable": {
+      "artifactName": "OneClickCleaner-${version}-win-portable.${ext}"
+    },
+    "afterPack": "build/afterPack.js",
+    "publish": null
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  }
+}
