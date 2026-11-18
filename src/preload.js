@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('api', {
   deepScan: (opts) => ipcRenderer.invoke('deep-scan', opts),
   deepAbort: () => ipcRenderer.invoke('deep-abort'),
   listDir: (dir) => ipcRenderer.invoke('list-dir', dir),
+  listDirAdmin: (dir) => ipcRenderer.invoke('list-dir-admin', dir),
   reveal: (p) => ipcRenderer.invoke('reveal', p),
   openPath: (p) => ipcRenderer.invoke('open-path', p),
   trashPath: (p) => ipcRenderer.invoke('trash-path', p),

@@ -464,7 +464,7 @@ async function clean(ids, opts) {
 
 // ------------------------------------------------------------------ IPC
 ipcMain.handle('info', async () => ({
-  platform: PLATFORM, home: HOME, arch: process.arch, version: app.getVersion(),
+  platform: PLATFORM, home: HOME, arch: process.arch, version: app.getVersion(), tmpdir: IS_MAC ? path.dirname(os.tmpdir()) : os.tmpdir(),
   tools: tools(TPLAT).map(({ id, name, desc, admin }) => ({ id, name, desc, admin: !!admin })),
 }));
 ipcMain.handle('scan', () => scan());
@@ -473,8 +473,43 @@ ipcMain.handle('deep-abort', () => { deepAbort = true; });
 ipcMain.handle('list-dir', (e, dir) => childSizes(dir, true));
 ipcMain.handle('reveal', (e, p) => { if (fs.existsSync(p)) shell.showItemInFolder(p); else shell.openPath(path.dirname(p)); });
 ipcMain.handle('open-path', (e, p) => shell.openPath(p));
+// 目录浏览里的“移到废纸篓”只允许用户自己的空间，系统目录一律拒绝
+function isUserSpace(p) {
+  const n = norm(p);
+  if (IS_WIN) {
+    const sys = [process.env.SystemRoot, process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.ProgramData].filter(Boolean).map(norm);
+    if (sys.some((d) => n === d || n.startsWith(d + '\\'))) return false;
+    return n.startsWith(norm(HOME) + '\\') || !n.startsWith('c:\\');
+  }
+  const allowed = [HOME, '/Applications', '/Users/Shared', '/Volumes'].map(norm);
+  return allowed.some((d) => n.startsWith(d + '/'));
+}
 ipcMain.handle('trash-path', async (e, p) => {
-  try { assertDeletable(p); await shell.trashItem(p); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
+  try {
+    if (!isUserSpace(p)) throw new Error('这是系统目录，不允许在这里删除');
+    assertDeletable(p); await shell.trashItem(p); return { ok: true };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+// macOS：读不到的系统目录，用管理员权限统计大小（只读取，不修改任何文件）
+ipcMain.handle('list-dir-admin', async (e, dir) => {
+  if (!IS_MAC) return { items: [], denied: true, error: '仅支持 macOS' };
+  const q = dir.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const script = `do shell script "/usr/bin/du -k -d 1 -a -x " & quoted form of "${q}" & " 2>/dev/null; echo '@@DIRS@@'; /usr/bin/find " & quoted form of "${q}" & " -mindepth 1 -maxdepth 1 -type d 2>/dev/null; true" with administrator privileges`;
+  const r = await run('osascript', ['-e', script], { timeout: 10 * 60 * 1000 });
+  if (r.code !== 0) return { items: [], denied: true, error: /User canceled|-128/.test(r.stderr) ? '已取消授权' : (r.stderr || '统计失败') };
+  const [duPart, dirPart = ''] = r.stdout.split('@@DIRS@@');
+  const dirs = new Set(dirPart.split(/\r\n|\r|\n/).map((l) => l.trim()).filter(Boolean).map((l) => path.normalize(l)));
+  const base = path.normalize(dir);
+  const items = [];
+  for (const line of duPart.split(/\r\n|\r|\n/)) {
+    const m = line.match(/^(\d+)\s+(.*)$/);
+    if (!m) continue;
+    const p = path.normalize(m[2]);
+    if (p === base || path.dirname(p) !== base) continue;
+    items.push({ name: path.basename(p), path: p, isDir: dirs.has(p), isLink: false, size: Number(m[1]) * 1024 });
+  }
+  items.sort((a, b) => b.size - a.size);
+  return { items, denied: false, admin: true };
 });
 ipcMain.handle('clean', (e, ids, opts) => clean(ids, opts));
 ipcMain.handle('space-overview', async () => {

@@ -360,10 +360,11 @@ function toggleOpen(it, rerender = true) {
   if (rerender) render();
 }
 
-async function loadDir(id) {
+async function loadDir(id, admin = false) {
   const o = state.open.get(id); if (!o || !o.cwd) return;
-  o.loading = true; o.data = null; render();
-  const res = await api.listDir(o.cwd);
+  o.loading = true; o.data = null; o.adminLoading = admin; render();
+  const res = admin ? await api.listDirAdmin(o.cwd) : await api.listDir(o.cwd);
+  if (admin && res.error) toast(res.error);
   if (state.open.get(id) !== o) return;
   o.loading = false; o.data = res; render();
 }
@@ -391,7 +392,18 @@ function browser(it) {
   crumbs.append(el('span', { style: 'flex:1' }), el('button', { class: 'btn sm', onclick: () => api.openPath(o.cwd) }, `在${fileMgr()}中打开`));
   box.append(crumbs);
 
-  if (o.loading) { box.append(el('div', { class: 'muted' }, '正在统计子目录大小…')); return box; }
+  // 这里能不能删
+  const adv = adviceFor(o.cwd);
+  if (adv) box.append(el('div', { class: `advice v-${adv.verdict}` }, el('b', {}, VERDICT[adv.verdict]), ' ', adv.text));
+  const isMac = state.info.platform === 'darwin';
+  const zeroish = o.data && o.data.items.length && o.data.items.every((c) => !c.size);
+  if (isMac && o.data && !o.data.admin && (o.data.denied || zeroish || (o.data.error && !o.data.items.length))) {
+    box.append(el('div', { class: 'advice v-care' }, '这个目录有部分内容没有读取权限，显示的大小偏小。 ',
+      el('button', { class: 'btn sm', onclick: () => loadDir(it.id, true) }, '用管理员权限统计大小'),
+      el('span', { class: 'muted' }, '（会弹出系统密码框，只读取大小，不修改任何文件）')));
+  }
+
+  if (o.loading) { box.append(el('div', { class: 'muted' }, o.adminLoading ? '正在用管理员权限统计，目录很大时需要几分钟…' : '正在统计子目录大小…')); return box; }
   if (!o.data) return box;
   if (o.data.error && !o.data.items.length) {
     // 不是目录（单个文件）或无权限
@@ -404,15 +416,22 @@ function browser(it) {
   const max = Math.max(1, items[0].size);
   const total = items.reduce((a, b) => a + b.size, 0);
   box.append(el('div', { class: 'muted', style: 'margin-bottom:4px;font-size:12px' }, `${items.length} 项，共 ${fmt(total)}，按大小排序${o.data.denied ? '（部分无权限）' : ''}`));
+  const mine = (state.info.tmpdir || '').replace(/^\/var\//, '/private/var/');
   for (const c of items.slice(0, 300)) {
+    const cp = c.path.replace(/^\/var\//, '/private/var/');
+    const ca = adviceFor(c.path);
+    const isMine = mine && (cp === mine || mine.startsWith(cp + '/') || cp.startsWith(mine + '/'));
+    const canTrash = isUserSpace(c.path) && !(ca && ca.verdict === 'no');
     box.append(el('div', { class: 'ent' },
       el('span', {}, c.isDir ? '📁' : '📄'),
-      el('span', { class: `n${c.isDir ? ' dir' : ''}`, title: c.path, onclick: c.isDir ? () => { o.cwd = c.path; loadDir(it.id); } : null }, c.name),
+      el('span', { class: `n${c.isDir ? ' dir' : ''}`, title: ca ? `${c.path}\n\n${VERDICT[ca.verdict]}：${ca.text}` : c.path, onclick: c.isDir ? () => { o.cwd = c.path; loadDir(it.id, !!o.data.admin); } : null },
+        c.name, isMine ? el('span', { class: 'badge b-safe', style: 'margin-left:6px' }, '你的') : null,
+        ca && ca.verdict === 'no' ? el('span', { class: 'badge b-run', style: 'margin-left:6px' }, '勿删') : null),
       el('span', { class: 's' }, fmt(c.size)),
       el('span', { class: 'd' }, c.mtime ? new Date(c.mtime).toLocaleDateString() : ''),
       el('span', { class: 'o' },
         el('button', { class: 'btn sm', onclick: () => api.reveal(c.path) }, '显示'),
-        el('button', { class: 'btn sm danger', onclick: async () => {
+        !canTrash ? el('span', { class: 'muted', style: 'font-size:11px', title: ca ? ca.text : '系统目录' }, '系统管理') : el('button', { class: 'btn sm danger', onclick: async () => {
           if (!(await api.confirm(`把“${c.name}”移到${trashName()}？`, `${c.path}\n${fmt(c.size)}\n\n移到${trashName()}后，需要清空${trashName()}才会真正释放空间。`))) return;
           const r = await api.trashPath(c.path);
           if (r.ok) { toast(`已移到${trashName()}：${c.name}`); loadDir(it.id); } else toast(`失败：${r.error}`);
@@ -421,6 +440,74 @@ function browser(it) {
   }
   if (items.length > 300) box.append(el('div', { class: 'muted' }, `… 还有 ${items.length - 300} 项，请在${fileMgr()}中查看`));
   return box;
+}
+
+const VERDICT = { ok: '✓ 可以删', care: '⚠︎ 谨慎', no: '✕ 不要手动删' };
+// ------------------------------------------------------------------ “这里能不能删”：按路径给出判断
+// verdict: ok 可以删 / care 谨慎 / no 不要手动删
+function adviceFor(p) {
+  if (!p || state.info.platform !== 'darwin') return winAdvice(p);
+  const home = state.info.home;
+  const mine = state.info.tmpdir; // /private/var/folders/xx/yyyy
+  const P = p.replace(/^\/var\//, '/private/var/');
+  const rules = [
+    [/^\/private\/var\/db\/(diagnostics|uuidtext)/, 'no', '系统统一日志（logd 管理），会自动滚动删除旧日志，通常只有几 GB。不要手动删；如果确实异常大，可在终端运行 sudo log erase --all。'],
+    [/^\/private\/var\/db\/Spotlight|\/\.Spotlight-V100/, 'no', 'Spotlight 索引。异常大时可在 系统设置 → Siri 与聚焦 → 聚焦隐私 中把磁盘加入再移除，让系统重建。'],
+    [/^\/private\/var\/vm/, 'no', '虚拟内存交换文件和睡眠镜像，由系统管理。重启后会缩小。'],
+    [/^\/private\/var\/(tmp|log)/, 'care', '系统临时文件 / 日志，需要管理员权限，重启会清理一部分，手动删收益通常很小。'],
+    [/^\/private\/var\/folders\/?$/, 'care', '每个用户和系统服务的临时（T）与缓存（C）目录。下面带“你的”标记的是你自己的，其余属于系统服务（Spotlight、照片分析、软件更新等）。点「用管理员权限统计大小」找出哪个最大。'],
+    [/^\/private\/var\/folders\/[^/]+\/[^/]+\/T(\/|$)/, 'care', '临时目录（T）。属于你自己的话可以在退出大部分应用后清理；重启系统也会自动清理。不是你的就不要动，重启即可。'],
+    [/^\/private\/var\/folders\/[^/]+\/[^/]+\/C(\/|$)/, 'care', '缓存目录（C）：Metal 着色器、字体、Xcode 预览、照片分析等缓存，可重建。删除前请退出相关应用；最稳妥的方法是重启，或以安全模式启动一次（开机按住电源键 → 按住 Shift 选择“以安全模式继续”），系统会自动清理。'],
+    [/^\/private\/var\/folders\/[^/]+\/[^/]+\/0(\/|$)/, 'no', '系统服务的私有数据（0 目录），不要动。'],
+    [/^\/private\/var\/folders\//, 'care', mine && P.startsWith(mine.replace(/^\/var\//, '/private/var/')) ? '这是你自己的临时与缓存目录，里面 T 是临时文件，C 是缓存。' : '属于其他系统账户或服务的临时/缓存目录。不要手动删；重启或安全模式启动一次会自动清理。'],
+    [/^\/private\/var\/db/, 'no', '系统数据库（软件更新、授权、包收据等），不要动。'],
+    [/^\/private\//, 'no', '系统目录，不建议手动删除。'],
+    [/^\/System\//, 'no', '受系统完整性保护的只读系统卷，无法也不应删除。'],
+    [/^\/Library\/Developer\/CoreSimulator/, 'care', 'iOS 模拟器运行时。在 Xcode → 设置 → Components 中删除不用的版本，不要直接删文件。'],
+    [/^\/Library\/Caches/, 'care', '系统级缓存，可删除但需要管理员权限，收益通常不大。'],
+    [/^\/Library\/(Application Support\/(GarageBand|Logic|MainStage)|Audio\/Apple Loops)/, 'care', 'GarageBand / Logic 音色库，不用的话在应用的“声音资源库”里删除。'],
+    [/^\/Library\//, 'no', '系统资源库：驱动、插件、共享组件，删错可能导致软件无法使用。请通过对应软件卸载。'],
+    [/^\/(usr|bin|sbin|opt\/homebrew\/(Cellar|lib|bin))/, 'no', '命令行工具与系统组件，请用 brew uninstall 等方式卸载。'],
+    [/^\/Applications\/[^/]+\.app$/, 'ok', '应用本体。不用的话移到废纸篓即可卸载（再清理它在 ~/Library 里的数据）。'],
+  ];
+  if (home) {
+    const h = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    rules.push(
+      [new RegExp(`^${h}/Library/Caches(/|$)`), 'ok', '应用缓存，一般可以删除，应用会重建。删除前退出对应应用。'],
+      [new RegExp(`^${h}/Library/Logs(/|$)`), 'ok', '日志，可以删除。'],
+      [new RegExp(`^${h}/Library/Developer/CoreSimulator/Devices`), 'care', '模拟器设备数据。用系统工具“删除不可用模拟器”，或在 Xcode → Devices and Simulators 中删除，不要直接删文件夹。'],
+      [new RegExp(`^${h}/Library/Developer/Xcode/DerivedData`), 'ok', '编译中间产物，可以删除。'],
+      [new RegExp(`^${h}/Library/(Containers|Group Containers)(/|$)`), 'care', '沙盒应用的数据（可能包含聊天记录、文档）。只删其中的 Caches 子目录比较安全，其余请在应用内管理。'],
+      [new RegExp(`^${h}/Library/Application Support(/|$)`), 'care', '应用数据（设置、数据库、下载的资源）。删除前确认是已卸载应用的残留，或使用应用自带的清理功能。'],
+      [new RegExp(`^${h}/Library/Mobile Documents`), 'care', 'iCloud 云盘本地副本。在 Finder 中右键 →“移除下载项”，不要直接删除（会从 iCloud 删掉）。'],
+      [new RegExp(`^${h}/Library/(Mail|Messages)`), 'care', '邮件/信息数据，请在对应应用中删除。'],
+      [new RegExp(`^${h}/Library(/|$)`), 'care', '资源库：应用数据和设置。不确定用途的不要删。'],
+      [/\.photoslibrary/, 'no', '照片图库，不要直接改动里面的文件。用“照片”应用管理，或开启 iCloud“优化 Mac 储存空间”。'],
+      [/\.pvm(\/|$)/, 'care', 'Parallels 虚拟机。在 Parallels 中删除快照或“回收磁盘空间”，不要直接删 .hds 文件。'],
+      [/\/node_modules(\/|$)/, 'ok', '项目依赖，删除后在项目里重新 install 即可。'],
+      [new RegExp(`^${h}/\\.Trash`), 'ok', '废纸篓。'],
+      [new RegExp(`^${h}(/|$)`), 'care', '你的个人文件，确认不需要再删除（会移到废纸篓，可恢复）。'],
+    );
+  }
+  for (const [re, v, t] of rules) if (re.test(P)) return { verdict: v, text: t };
+  return null;
+}
+function winAdvice(p) {
+  if (!p || state.info.platform !== 'win32') return null;
+  const l = p.toLowerCase();
+  if (/^c:\\windows\\(winsxs|system32|syswow64)/.test(l)) return { verdict: 'no', text: '系统核心组件，不要手动删除。WinSxS 可用系统工具里的 DISM 组件清理。' };
+  if (/^c:\\windows\\(temp|softwaredistribution\\download)/.test(l)) return { verdict: 'ok', text: '临时文件 / 更新下载缓存，可以清理（需要管理员）。' };
+  if (/^c:\\windows/.test(l)) return { verdict: 'no', text: '系统目录，不建议手动删除，请用“磁盘清理”。' };
+  if (/^c:\\program files/.test(l)) return { verdict: 'no', text: '已安装的软件，请在“设置 → 应用”中卸载，不要直接删文件夹。' };
+  if (/^c:\\programdata/.test(l)) return { verdict: 'care', text: '程序共享数据，删除前确认对应软件已卸载。' };
+  if (/\\appdata\\local\\temp/.test(l)) return { verdict: 'ok', text: '临时文件，可以删除。' };
+  if (/\\appdata\\/.test(l)) return { verdict: 'care', text: '应用数据。名字里带 Cache 的一般可删，其余请在应用内管理。' };
+  return null;
+}
+function isUserSpace(p) {
+  const n = (p || '').toLowerCase(); const h = (state.info.home || '').toLowerCase();
+  if (state.info.platform === 'win32') return !/^c:\\(windows|program files|programdata)/.test(n) && (n.startsWith(h + '\\') || !n.startsWith('c:\\'));
+  return [h, '/applications', '/users/shared', '/volumes'].some((d) => d && n.startsWith(d + '/'));
 }
 
 // ------------------------------------------------------------------ 清理
