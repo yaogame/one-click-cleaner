@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   trashPath: (p) => ipcRenderer.invoke('trash-path', p),
   clean: (ids, opts) => ipcRenderer.invoke('clean', ids, opts),
   diskUsage: () => ipcRenderer.invoke('disk-usage'),
+  spaceOverview: () => ipcRenderer.invoke('space-overview'),
   confirm: (msg, detail) => ipcRenderer.invoke('confirm', msg, detail),
   runTool: (id) => ipcRenderer.invoke('run-tool', id),
   relaunchAdmin: () => ipcRenderer.invoke('relaunch-admin'),

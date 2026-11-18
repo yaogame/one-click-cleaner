@@ -7,7 +7,9 @@
 - **实测占用**：macOS 用 `du`（实际磁盘块），Windows 逐文件统计。
 - **目录浏览**：点任意项展开，按大小排序、逐层进入，单个文件/文件夹可「移到废纸篓/回收站」或在 Finder/资源管理器中显示。
 - **自动发现**：`~/Library/Caches` 里所有 ≥50 MiB 的应用缓存（例如 `com.hanze.spektralab`）、Application Support / Containers / AppData 里的大目录、主目录一级目录概览。
-- **深度扫描**：主目录里 ≥500 MiB 的大文件，以及 node_modules、.next、target、Pods、.venv 等项目依赖/构建产物。
+- **磁盘空间去向**：把“已用”拆成 数据卷 / 系统卷 / 虚拟内存 / Preboot，再把数据卷拆成 主目录、/Applications、/Library、Homebrew、/Users/Shared、/private/var，剩余部分标为“未统计”（Time Machine 本地快照、可清除空间、无权限目录），并给出原因。
+- **深度扫描**：主目录（含 ~/Library）里的大文件（≥500 MiB，资源库内 ≥1 GiB）、node_modules / .next / target / Pods / .venv 等项目依赖与构建产物，以及“空间集中的目录”（≥2 GiB 且空间不集中在某一个子目录里的位置）和照片图库、Final Cut / Logic 工程等媒体包。
+- **虚拟机 / 模拟器 / SDK、照片 / 音乐 / iCloud**：Parallels、VMware、UTM、OrbStack、iOS 模拟器运行时、Android SDK、照片图库、iCloud 本地副本、邮件、信息附件、Logic 音色库等。
 - **分析报告**：扫描完自动生成类似“你的 ~/.codex 总计 5.1 GiB，最大的部分是会话记录……”的摘要表格。
 - **运行中检测**：相关应用还在运行时会标红提醒先退出。
 - **系统工具**：mac：brew cleanup、删除不可用模拟器、Docker prune、Time Machine 本地快照、完全磁盘访问权限；Windows：磁盘清理、DISM 组件清理、传递优化、关闭休眠等（原 Windows 清理助手的项目都合并在“系统”分类里：%TEMP%、Windows\Temp、更新缓存、Prefetch、WER、缩略图、着色器缓存、回收站……）。

@@ -14,7 +14,7 @@ const el = (tag, attrs = {}, ...kids) => {
 const LEVEL = {
   safe: ['可清理', 'b-safe'], caution: ['谨慎', 'b-caution'], keep: ['建议保留', 'b-keep'], review: ['手动检查', 'b-review'], info: ['概览', 'b-info'],
 };
-const CAT_ORDER = ['AI 工具', '系统', '浏览器', '开发工具', '设计 / 媒体', '通讯 / 应用', '应用缓存（自动发现）', '大目录（自动发现）', '项目依赖 / 构建产物（深度扫描）', '大文件（深度扫描）', '主目录概览'];
+const CAT_ORDER = ['AI 工具', '系统', '浏览器', '开发工具', '虚拟机 / 模拟器 / SDK', '照片 / 音乐 / iCloud', '设计 / 媒体', '通讯 / 应用', '应用缓存（自动发现）', '大目录（自动发现）', '空间集中的目录（深度扫描）', '大文件（深度扫描）', '项目依赖 / 构建产物（深度扫描）', '全盘空间去向', '主目录概览'];
 
 const state = {
   info: null, items: new Map(), selected: new Set(), filter: 'all', query: '', open: new Map(), collapsed: new Set(['主目录概览']),
@@ -95,7 +95,7 @@ function scheduleRender() { if (rTimer) return; rTimer = setTimeout(() => { rTim
 async function scan() {
   if (state.scanning) return;
   state.scanning = true; setBusy();
-  for (const [id, it] of state.items) if (!/^[fp]/.test(id)) state.items.delete(id);
+  for (const [id, it] of state.items) if (!/^[fphm]/.test(id)) state.items.delete(id);
   state.selected.clear(); state.open.clear();
   $('#toolbar').hidden = false;
   $('#summary').innerHTML = ''; $('#summary').append(el('h1', {}, '正在扫描…'), el('p', { class: 'muted' }, '正在统计各个目录的实际占用，主目录较大时需要一两分钟。'));
@@ -105,6 +105,7 @@ async function scan() {
     for (const it of r.items) state.items.set(it.id, it);
     state.admin = r.admin;
     state.scannedOnce = true;
+    try { state.space = await api.spaceOverview(); state.disk = await api.diskUsage(); } catch { state.space = null; }
     progress(false);
     renderSummary((Date.now() - t0) / 1000);
     renderAdminBanner();
@@ -120,11 +121,11 @@ async function deepScan() {
   state.scanning = true; setBusy(true);
   $('#toolbar').hidden = false;
   if (!state.scannedOnce) { $('#summary').innerHTML = ''; $('#summary').append(el('h1', {}, '深度扫描中…'), el('p', { class: 'muted' }, '正在主目录中查找 ≥500 MiB 的大文件、node_modules、构建产物等。')); }
-  for (const id of [...state.items.keys()]) if (/^[fp]/.test(id)) { state.items.delete(id); state.selected.delete(id); }
+  for (const id of [...state.items.keys()]) if (/^[fphm]/.test(id)) { state.items.delete(id); state.selected.delete(id); }
   try {
     const r = await api.deepScan({ minFileMB: 500 });
     for (const it of r.items) state.items.set(it.id, it);
-    state.collapsed.delete('大文件（深度扫描）'); state.collapsed.delete('项目依赖 / 构建产物（深度扫描）');
+    state.collapsed.delete('大文件（深度扫描）'); state.collapsed.delete('项目依赖 / 构建产物（深度扫描）'); state.collapsed.delete('空间集中的目录（深度扫描）');
     toast(`深度扫描${r.aborted ? '已停止' : '完成'}：检查了 ${r.visited.toLocaleString()} 个文件，发现 ${r.items.length} 项`);
     if (state.scannedOnce) renderSummary(); else { $('#summary').innerHTML = ''; $('#summary').append(el('h2', {}, '深度扫描结果'), el('p', { class: 'muted' }, '点「扫描」可同时统计缓存、日志等常规项目。')); }
   } finally {
@@ -161,6 +162,8 @@ function renderSummary(secs) {
     stat(fmt(safe), '可清理（默认已勾选）'), stat(fmt(caution), '谨慎项（需手动勾选）'), stat(fmt(manual), '建议保留 / 手动检查'),
     secs ? stat(`${secs.toFixed(0)} 秒`, '扫描耗时') : null));
 
+  renderSpace(s, items);
+
   // AI 工具（Codex 等）专门的总结
   const home = items.filter((i) => i.cat === '主目录概览');
   const codexHome = home.find((i) => i.name === '.codex');
@@ -181,7 +184,7 @@ function renderSummary(secs) {
   }
 
   // 其它最大的项
-  const others = items.filter((i) => i.cat !== 'AI 工具' && i.cat !== '主目录概览' && i.level !== 'info' && i.size > 100 * 2 ** 20).sort((a, b) => b.size - a.size).slice(0, 10);
+  const others = items.filter((i) => i.cat !== 'AI 工具' && i.cat !== '主目录概览' && i.level !== 'info' && i.size > 100 * 2 ** 20 && !/^[hm]/.test(i.id)).sort((a, b) => b.size - a.size).slice(0, 10);
   if (others.length) { s.append(el('h2', { style: 'margin-top:14px' }, '占用最大的其它项目')); s.append(table(others)); }
 
   const dyn = items.filter((i) => i.cat === '应用缓存（自动发现）').sort((a, b) => b.size - a.size);
@@ -199,6 +202,53 @@ function renderSummary(secs) {
       ? '⚠︎ 部分目录没有读取权限，实际占用可能更大。可在「系统工具」中授予“完全磁盘访问权限”后重新扫描。'
       : '⚠︎ 部分目录没有读取权限，实际占用可能更大。可以管理员身份重新启动后再扫描。'));
   }
+}
+// 磁盘空间去向：把“已用”拆解到各个卷 / 顶层目录，剩下的就是快照、可清除空间或无权限的部分
+function renderSpace(s, items) {
+  const sp = state.space; const disk = state.disk;
+  if (!sp || !disk || !sp.volumes.length) return;
+  const used = disk.total - disk.free;
+  const data = sp.volumes[0];
+  const parts = items.filter((i) => i.cat === '全盘空间去向' && i.size > 0).sort((a, b) => b.size - a.size);
+  const counted = parts.reduce((a, b) => a + b.size, 0);
+  const rest = Math.max(0, data.used - counted);
+  const others = sp.volumes.slice(1).filter((v) => v.used > 256 * 2 ** 20);
+  const otherVolUsed = others.reduce((a, b) => a + b.used, 0);
+  const containerRest = Math.max(0, used - data.used - otherVolUsed);
+  s.append(el('h2', { style: 'margin-top:14px' }, `磁盘空间去向：已用 ${fmt(used)} / 共 ${fmt(disk.total)}`));
+  const segs = [...parts.map((p) => ({ label: p.name, size: p.size })), { label: '未统计', size: rest, dim: true }, ...others.map((v) => ({ label: v.name, size: v.used, sys: true }))];
+  const bar = el('div', { class: 'stack' });
+  const palette = ['#2f6bff', '#18a058', '#e3a23a', '#9a5bd0', '#d64541', '#3aa7c9', '#8a6d3b'];
+  segs.forEach((g, i) => {
+    if (g.size / used < 0.004) return;
+    bar.append(el('i', { title: `${g.label} ${fmt(g.size)}`, style: `width:${(g.size / used * 100).toFixed(2)}%;background:${g.dim ? 'var(--line)' : g.sys ? 'var(--info)' : palette[i % palette.length]}` }));
+  });
+  s.append(bar);
+  const rows = [
+    ...parts.map((p) => el('tr', {},
+      el('td', {}, el('a', { onclick: () => jumpTo(p.id) }, p.name), p.denied ? el('span', { class: 'badge b-perm', style: 'margin-left:6px' }, '部分无权限') : null),
+      el('td', { class: 'size' }, fmt(p.size)), el('td', {}, p.note || ''))),
+    el('tr', {}, el('td', {}, '未统计到的部分'), el('td', { class: 'size' }, fmt(rest)), el('td', {}, restNote(rest))),
+    ...others.map((v) => el('tr', {}, el('td', {}, v.name), el('td', { class: 'size' }, fmt(v.used)), el('td', {}, '系统管理，无法直接清理。'))),
+  ];
+  if (containerRest > 2 ** 30) rows.push(el('tr', {}, el('td', {}, '其他卷（Recovery 等）'), el('td', { class: 'size' }, fmt(containerRest)), el('td', {}, '系统恢复分区等。')));
+  s.append(el('table', {}, el('tr', {}, el('th', {}, '位置'), el('th', {}, '占用'), el('th', {}, '说明')), rows));
+  const home = items.filter((i) => i.cat === '主目录概览').sort((a, b) => b.size - a.size).slice(0, 12);
+  if (home.length) {
+    s.append(el('p', { style: 'margin-top:10px' }, '主目录里占用最大的：',
+      ...home.map((h, k) => el('span', {}, k ? '、' : '', el('a', { onclick: () => jumpTo(h.id) }, `~/${h.name}`), ` ${fmt(h.size)}`))));
+  }
+}
+function restNote(rest) {
+  const sp = state.space; const tips = [];
+  if (state.info.platform === 'darwin') {
+    if (sp.snapshots.length) tips.push(`有 ${sp.snapshots.length} 个 Time Machine 本地快照，它们占用的空间算在这里（系统工具 → 清理本地快照）`);
+    if ([...state.items.values()].some((i) => i.denied)) tips.push('有目录因缺少“完全磁盘访问权限”没统计到（系统工具 → 授予权限后重新扫描）');
+    tips.push('其余是 APFS 可清除空间、其他用户的文件和系统数据库');
+  } else {
+    tips.push('包括无权限读取的目录、卷影副本（系统还原点）和其他用户的文件；以管理员身份运行可统计更多');
+  }
+  return (rest > 20 * 2 ** 30 ? '偏大：' : '') + tips.join('；') + '。';
 }
 function stat(v, l) { return el('div', { class: 'stat' }, el('b', {}, v), el('span', {}, l)); }
 function table(rows) {

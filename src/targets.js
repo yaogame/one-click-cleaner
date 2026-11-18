@@ -21,6 +21,9 @@ const CAT = {
   dynCache: '应用缓存（自动发现）',
   dynBig: '大目录（自动发现）',
   home: '主目录概览',
+  space: '全盘空间去向',
+  vm: '虚拟机 / 模拟器 / SDK',
+  media2: '照片 / 音乐 / iCloud',
 };
 
 function T(cat, name, paths, level, note, extra = {}) {
@@ -90,9 +93,38 @@ function mac() {
     T(CAT.ai, 'Cursor 扩展安装包', [`${AS}/Cursor/CachedExtensionVSIXs`, `${AS}/Cursor/logs`], 'safe', '扩展安装包缓存与日志。', { apps: ['Cursor'] }),
     electronApp(CAT.ai, 'Windsurf', 'Windsurf', ['Windsurf']),
 
+    // 全盘空间去向（只统计，不清理；用于解释磁盘被谁占了）
+    T(CAT.space, '应用程序 /Applications', ['/Applications'], 'info', '已安装的应用。点开按大小排序，卸载不用的大应用（如旧版 Xcode、游戏）。', { space: 'data' }),
+    T(CAT.space, '系统资源库 /Library', ['/Library'], 'info', '所有用户共享的资源：模拟器运行时、Logic/GarageBand 音色库、打印机驱动等。', { space: 'data' }),
+    T(CAT.space, 'Homebrew / 命令行工具', ['/opt/homebrew', '/usr/local'], 'info', 'Homebrew 安装的软件。可在系统工具里运行 brew cleanup。', { space: 'data' }),
+    T(CAT.space, '共享目录 /Users/Shared', ['/Users/Shared'], 'info', '所有用户共享的文件，部分软件（如 Adobe、游戏）会把数据放在这里。', { space: 'data' }),
+    T(CAT.space, '系统临时与缓存 /private/var', ['/private/var/folders', '/private/var/log', '/private/var/db/diagnostics', '/private/var/tmp'], 'info', '系统级临时文件与日志，大部分需要管理员权限，重启后系统会自动清理一部分。', { space: 'data' }),
+
+    // 虚拟机 / 模拟器 / SDK
+    T(CAT.vm, 'Parallels 虚拟机', ['~/Parallels', '~/Documents/Parallels', '~/Library/Parallels'], 'review', '虚拟机磁盘。在 Parallels 中：虚拟机设置 → 回收磁盘空间；或删除不再使用的虚拟机/快照。'),
+    T(CAT.vm, 'VMware / VirtualBox 虚拟机', ['~/Virtual Machines.localized', '~/Virtual Machines', '~/VirtualBox VMs'], 'review', '虚拟机磁盘，在对应软件中删除不用的虚拟机或快照。'),
+    T(CAT.vm, 'UTM 虚拟机', ['~/Library/Containers/com.utmapp.UTM/Data/Documents'], 'review', '虚拟机磁盘，在 UTM 中删除不用的虚拟机。'),
+    T(CAT.vm, 'OrbStack / Colima / Podman', ['~/.orbstack', '~/Library/Group Containers/HUAJUAN9QZ.dev.orbstack', '~/.colima', '~/.local/share/containers'], 'review', '容器虚拟磁盘，请用对应工具的 prune / 清理命令。'),
+    T(CAT.vm, 'iOS 模拟器运行时', ['/Library/Developer/CoreSimulator/Volumes', '/Library/Developer/CoreSimulator/Images', '/Library/Developer/CoreSimulator/Cryptex'], 'review', '每个 iOS 版本的模拟器约 7–10 GiB。在 Xcode → 设置 → Components（平台）中删除不用的版本，或用系统工具“查看模拟器运行时”。'),
+    T(CAT.vm, 'Xcode 安装包残留', ['~/Downloads/Xcode*.xip', '~/Library/Developer/Xcode/UserData/IB Support'], 'caution', '下载的 Xcode 安装包、IB 渲染缓存。', { mode: 'whole' }),
+    T(CAT.vm, 'Android SDK', ['~/Library/Android/sdk/system-images', '~/Library/Android/sdk/ndk', '~/Library/Android/sdk/sources'], 'review', '模拟器系统镜像 / NDK / 源码。在 Android Studio → SDK Manager 中卸载不用的版本。'),
+    T(CAT.vm, 'Flutter / Unity / Unreal 引擎', ['~/development/flutter/bin/cache', '/Applications/Unity/Hub/Editor', '/Users/Shared/Epic Games'], 'review', '引擎与 SDK 本体，在各自的 Hub/启动器中卸载不用的版本。'),
+    T(CAT.vm, '设备固件缓存', ['~/Library/Containers/com.apple.AMPDevicesAgent/Data/Library/Caches', '~/Library/Group Containers/K36BKF7T3D.group.com.apple.configurator'], 'safe', '设备恢复/更新固件缓存，可重新下载。'),
+
+    // 照片 / 音乐 / iCloud
+    T(CAT.media2, '照片图库', ['~/Pictures/*.photoslibrary'], 'review', '不要直接删除里面的文件。可在 照片 → 设置 → iCloud 打开“优化 Mac 储存空间”。', { mode: 'whole' }),
+    T(CAT.media2, 'iCloud 云盘本地副本', ['~/Library/Mobile Documents'], 'review', '在 Finder 中对不常用的文件夹右键 →“移除下载项”，文件仍在 iCloud。'),
+    T(CAT.media2, '邮件数据', ['~/Library/Mail'], 'review', '邮件和附件，需要完全磁盘访问权限。可在“邮件”中删除带大附件的旧邮件。', { fda: true }),
+    T(CAT.media2, '信息附件', ['~/Library/Messages/Attachments'], 'review', 'iMessage 图片/视频。可在 系统设置 → 通用 → 储存空间 → 信息 中按大小删除。', { fda: true }),
+    T(CAT.media2, '音乐 / 播客 / Apple TV 下载', ['~/Music/Music/Media.localized', '~/Music/iTunes/iTunes Media', '~/Library/Group Containers/243LU875E5.groups.com.apple.podcasts', '~/Movies/TV/Media.localized'], 'review', '已下载的媒体，可在对应应用中“移除下载项”。'),
+    T(CAT.media2, 'GarageBand / Logic 音色库', ['/Library/Application Support/GarageBand', '/Library/Application Support/Logic', '/Library/Audio/Apple Loops', '/Library/Application Support/MainStage'], 'review', '乐器与循环乐段。不用 GarageBand/Logic 时可在应用内的“声音资源库”中删除。'),
+    T(CAT.media2, '下载过的 macOS 安装器', ['/Applications/Install macOS*.app'], 'caution', '系统安装器，升级完成后可删除。', { mode: 'whole' }),
+    T(CAT.media2, '桌面 / 影片 / 图片', ['~/Desktop', '~/Movies', '~/Pictures'], 'review', '个人文件，点开按大小排序检查。'),
     // 系统
     T(CAT.sys, '废纸篓', '~/.Trash', 'safe', '清空废纸篓（不可恢复）。', { action: 'emptyTrash' }),
     T(CAT.sys, '用户日志', [`${L}/Logs`], 'safe', '应用日志与崩溃报告，可清理。'),
+    T(CAT.sys, '用户临时目录 $TMPDIR', ['%TMPDIR%'], 'caution', '系统分配给你的临时目录（/private/var/folders/…/T），正在运行的应用可能在用，建议退出大部分应用后再清理，重启也会清理一部分。'),
+    T(CAT.sys, '用户级系统缓存', ['%TMPDIR%/../C'], 'caution', '/private/var/folders/…/C，系统与应用的缓存（含 Metal 着色器、字体缓存等），可重建。'),
     T(CAT.sys, '保存的应用状态', [`${L}/Saved Application State`], 'caution', '应用重新打开时恢复窗口用，清理后窗口不会自动恢复。'),
     T(CAT.sys, 'iOS 软件更新包', [`${L}/iTunes/iPhone Software Updates`, `${L}/iTunes/iPad Software Updates`], 'safe', '已下载的 iOS 固件，可删除。'),
     T(CAT.sys, 'iPhone/iPad 备份', [`${AS}/MobileSync/Backup`], 'review', '设备备份。请在 Finder → 设备 → 管理备份 中删除旧备份。', { fda: true }),
@@ -182,6 +214,18 @@ function win() {
     electronApp(CAT.ai, 'ChatGPT', 'OpenAI\\ChatGPT', ['chatgpt']),
 
     // 系统（含原“Windows 清理助手”的常用项目）
+    // 全盘空间去向
+    T(CAT.space, 'Windows 系统目录', ['%SystemRoot%'], 'info', 'Windows 本身（含 WinSxS）。可在系统工具里运行 DISM 组件清理。', { space: 'data' }),
+    T(CAT.space, '程序 Program Files', ['%ProgramFiles%', '%ProgramFiles(x86)%'], 'info', '已安装的软件，在“设置 → 应用”中卸载不用的大软件。', { space: 'data' }),
+    T(CAT.space, '程序数据 ProgramData', ['%ProgramData%'], 'info', '所有用户共享的程序数据。', { space: 'data' }),
+    T(CAT.space, '页面文件 / 休眠 / 交换', ['C:\\pagefile.sys', 'C:\\hiberfil.sys', 'C:\\swapfile.sys'], 'info', '虚拟内存与休眠文件。关闭休眠可释放 hiberfil.sys。', { space: 'data', mode: 'whole' }),
+    T(CAT.space, '公用目录', ['C:\\Users\\Public'], 'info', '所有用户共享的文件。', { space: 'data' }),
+    // 虚拟机 / SDK
+    T(CAT.vm, 'VMware / VirtualBox / Hyper-V 虚拟机', ['~\\Documents\\Virtual Machines', '~\\VirtualBox VMs', '%ProgramData%\\Microsoft\\Windows\\Virtual Hard Disks'], 'review', '虚拟机磁盘，在对应软件中删除不用的虚拟机或快照。'),
+    T(CAT.vm, 'Android SDK / 模拟器', ['%LOCALAPPDATA%\\Android\\Sdk\\system-images', '~\\.android\\avd'], 'review', '在 Android Studio 中卸载不用的镜像/模拟器。'),
+    T(CAT.vm, 'Unity / Unreal 引擎', ['%ProgramFiles%\\Unity\\Hub\\Editor', '%ProgramFiles%\\Epic Games'], 'review', '在各自的 Hub/启动器中卸载不用的版本。'),
+    T(CAT.media2, 'OneDrive 本地副本', ['~\\OneDrive'], 'review', '对不常用的文件夹右键 →“释放空间”，文件仍在云端。'),
+    T(CAT.media2, '桌面 / 视频 / 图片', ['~\\Desktop', '~\\Videos', '~\\Pictures'], 'review', '个人文件，点开按大小排序检查。'),
     T(CAT.sys, '回收站', 'C:\\$Recycle.Bin', 'safe', '清空所有磁盘的回收站（不可恢复）。', { action: 'emptyTrash' }),
     T(CAT.sys, '用户临时文件 %TEMP%', ['%TEMP%'], 'safe', '临时文件。正在使用的文件会自动跳过。'),
     T(CAT.sys, '系统临时文件', [`${W}\\Temp`], 'safe', '需要管理员权限。', { admin: true }),
@@ -258,7 +302,9 @@ function discoverySources(platform) {
       { dir: '~/Library/Group Containers', cat: CAT.dynBig, level: 'review', min: 500 * 2 ** 20, note: '应用组共享数据，可能包含重要数据。' },
       { dir: '~/Documents', cat: CAT.dynBig, level: 'review', min: 1024 * 2 ** 20, note: '文稿中的大目录，按大小排序逐项检查。' },
       { dir: '~/Movies', cat: CAT.dynBig, level: 'review', min: 1024 * 2 ** 20, note: '影片中的大项。' },
-      { dir: '~', cat: CAT.home, level: 'info', min: 100 * 2 ** 20, note: '主目录下的一级目录占用（含隐藏目录），仅用于定位空间。', includeHidden: true },
+      { dir: '~', cat: CAT.home, level: 'info', min: 100 * 2 ** 20, note: '主目录下的一级目录占用（含隐藏目录），仅用于定位空间。', includeHidden: true, totalName: '主目录（全部）' },
+      { dir: '/Applications', cat: CAT.dynBig, level: 'review', min: 2 * 1024 * 2 ** 20, note: '体积很大的应用，不用的话可以卸载。' },
+      { dir: '~/Library', cat: CAT.dynBig, level: 'review', min: 2 * 1024 * 2 ** 20, note: '资源库里的大目录。', exclude: ['Caches', 'Application Support', 'Containers', 'Group Containers', 'Logs'] },
     ];
   }
   return [
@@ -266,7 +312,7 @@ function discoverySources(platform) {
     { dir: '%APPDATA%', cat: CAT.dynBig, level: 'review', min: 500 * 2 ** 20, note: '应用漫游数据，可能包含重要数据。' },
     { dir: '%ProgramData%', cat: CAT.dynBig, level: 'review', min: 1024 * 2 ** 20, note: '所有用户共享的程序数据。' },
     { dir: '~\\Documents', cat: CAT.dynBig, level: 'review', min: 1024 * 2 ** 20, note: '文档中的大目录，按大小排序逐项检查。' },
-    { dir: '~', cat: CAT.home, level: 'info', min: 100 * 2 ** 20, note: '用户目录下的一级目录占用（含隐藏目录），仅用于定位空间。', includeHidden: true },
+    { dir: '~', cat: CAT.home, level: 'info', min: 100 * 2 ** 20, note: '用户目录下的一级目录占用（含隐藏目录），仅用于定位空间。', includeHidden: true, totalName: '用户目录（全部）' },
   ];
 }
 
@@ -276,6 +322,8 @@ function tools(platform) {
     return [
       { id: 'brew', name: 'Homebrew 清理', desc: 'brew cleanup -s --prune=all：删除旧版本和下载缓存', cmd: 'PATH=/opt/homebrew/bin:/usr/local/bin:$PATH brew cleanup -s --prune=all' },
       { id: 'simctl', name: '删除不可用模拟器', desc: 'xcrun simctl delete unavailable：删除已不支持的 iOS 模拟器', cmd: 'xcrun simctl delete unavailable' },
+      { id: 'simrt', name: '查看模拟器运行时', desc: 'xcrun simctl runtime list：列出已安装的 iOS 模拟器运行时及大小，再到 Xcode → 设置 → Components 删除', cmd: 'xcrun simctl runtime list -v 2>/dev/null || xcrun simctl runtime list' },
+      { id: 'snaplist', name: '查看 Time Machine 本地快照', desc: 'tmutil listlocalsnapshots /：本地快照会占用“系统数据”', cmd: 'tmutil listlocalsnapshots / ; echo; diskutil apfs list | grep -E \"Capacity|Snapshot|Name:\" | head -40' },
       { id: 'docker', name: 'Docker 清理', desc: 'docker system prune -f：删除停止的容器、悬空镜像和构建缓存', cmd: 'PATH=/usr/local/bin:/opt/homebrew/bin:$PATH docker system prune -f && docker builder prune -f' },
       { id: 'npm', name: 'npm 缓存清理', desc: 'npm cache clean --force', cmd: 'PATH=/opt/homebrew/bin:/usr/local/bin:$PATH npm cache clean --force' },
       { id: 'pnpm', name: 'pnpm store prune', desc: '删除未被任何项目引用的包', cmd: 'PATH=/opt/homebrew/bin:/usr/local/bin:$HOME/Library/pnpm:$PATH pnpm store prune' },

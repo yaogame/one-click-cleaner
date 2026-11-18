@@ -229,7 +229,7 @@ async function scan() {
   // 收集所有静态目标的路径，用于自动发现时去重
   const claimed = [];
   const resolvedTargets = await Promise.all(targets.map(async (t) => ({ t, paths: await resolvePaths(t.paths) })));
-  for (const { paths } of resolvedTargets) claimed.push(...paths);
+  for (const { t, paths } of resolvedTargets) if (t.level !== 'info') claimed.push(...paths);
   // dedupe：目标目录里包含其它目标时，只取未被其它目标覆盖的子项，避免重复统计
   for (const rt of resolvedTargets) {
     if (!rt.t.dedupe) continue;
@@ -275,8 +275,13 @@ async function scan() {
     tasks.push((async () => {
       const dir = expandVars(src.dir);
       const { items, denied } = await childSizes(dir, src.includeHidden !== false);
+      if (src.totalName) {
+        const item = { id: `d${dynId++}`, cat: '全盘空间去向', name: src.totalName, paths: [dir], resolved: [dir], exists: true, size: items.reduce((a, b) => a + (b.isLink ? 0 : b.size), 0), level: 'info', note: '主目录总占用（含隐藏目录和 ~/Library）。点开逐层查看。', mode: 'contents', dynamic: true, denied, space: 'home' };
+        scanned.set(item.id, item); results.push(item); send('scan-item', publicItem(item));
+      }
       for (const c of items) {
         if (c.size < src.min || c.isLink) continue;
+        if (src.exclude && src.exclude.includes(c.name)) continue;
         // 已被具体目标覆盖的路径跳过（主目录概览除外，它只用于定位）
         if (src.cat !== '主目录概览' && claimed.some((p) => norm(p) === norm(c.path) || isInside(c.path, p))) continue;
         const item = {
@@ -305,7 +310,7 @@ function publicItem(it) {
   return {
     id: it.id, cat: it.cat, name: it.name, level: it.level, note: it.note, size: it.size, exists: it.exists,
     resolved: it.resolved, patterns: it.paths, mode: it.mode, denied: it.denied, fda: !!it.fda, admin: !!it.admin,
-    running: it.running || [], action: it.action || null, dynamic: !!it.dynamic, dedupe: !!it.dedupe,
+    running: it.running || [], action: it.action || null, dynamic: !!it.dynamic, dedupe: !!it.dedupe, space: it.space || null,
   };
 }
 
@@ -317,26 +322,30 @@ let deepAbort = false;
 async function deepScan(opts) {
   deepAbort = false;
   const minFile = (opts && opts.minFileMB ? opts.minFileMB : 500) * 2 ** 20;
-  const roots = (opts && opts.roots && opts.roots.length) ? opts.roots : [HOME];
-  const skip = new Set([
-    path.join(HOME, 'Library'), path.join(HOME, '.Trash'), path.join(HOME, 'AppData'),
-    path.join(HOME, 'Pictures', 'Photos Library.photoslibrary'),
-  ].map(norm));
-  const bigFiles = []; const devDirs = [];
+  const libMinFile = 1024 * 2 ** 20; // ~/Library 里只报告 ≥1 GiB 的文件，减少噪音
+  const LIB = norm(path.join(HOME, 'Library'));
+  const roots = (opts && opts.roots && opts.roots.length) ? opts.roots : [HOME, ...(IS_MAC ? ['/Users/Shared'] : []), ...(IS_WIN ? ['C:\\Users\\Public'] : [])];
+  const skip = new Set([path.join(HOME, '.Trash'), '/System', '/private/var/vm'].map(norm));
+  const BUNDLE = /\.(photoslibrary|musiclibrary|tvlibrary|fcpbundle|logicx|band|imovielibrary|aplibrary|lrlibrary)$/i;
+  const bigFiles = []; const devDirs = []; const bundles = []; const dirStats = [];
   let visited = 0; let lastSend = 0;
-  const walk = async (dir, depth) => {
-    if (deepAbort || depth > 14) return;
-    if (skip.has(norm(dir))) return;
+  const allocated = (st) => (st.blocks != null && !IS_WIN ? st.blocks * 512 : st.size);
+  // 返回该目录的总占用；同时记录 ≥1 GiB 的目录，用于找出“空间集中”的位置
+  const walk = async (dir, depth, inLib) => {
+    if (deepAbort || depth > 20) return 0;
+    if (skip.has(norm(dir))) return 0;
     let ents;
-    try { ents = await ioLimit(() => fsp.readdir(dir, { withFileTypes: true })); } catch { return; }
+    try { ents = await ioLimit(() => fsp.readdir(dir, { withFileTypes: true })); } catch { return 0; }
     const names = new Set(ents.map((e) => e.name));
     const subs = [];
+    let files = 0;
     for (const e of ents) {
       const p = path.join(dir, e.name);
       if (e.isSymbolicLink()) continue;
       if (e.isDirectory()) {
-        if (e.name === '.git' || e.name.endsWith('.photoslibrary') || e.name.endsWith('.app')) continue;
-        if (DEV_DIRS.has(e.name)) {
+        if (e.name === '.git') continue;
+        if (BUNDLE.test(e.name)) { bundles.push({ path: p }); continue; }
+        if (!inLib && DEV_DIRS.has(e.name)) {
           const need = DEV_NEEDS_SIBLING[e.name];
           if (!need || need.length === 0 || need.some((n) => names.has(n))) { devDirs.push({ path: p, kind: e.name, parent: dir }); continue; }
         }
@@ -344,15 +353,23 @@ async function deepScan(opts) {
       } else if (e.isFile()) {
         visited++;
         try {
-          const st = await ioLimit(() => fsp.stat(p));
-          if (st.size >= minFile) bigFiles.push({ path: p, size: st.size, mtime: st.mtimeMs });
+          const st = await ioLimit(() => fsp.lstat(p));
+          const sz = allocated(st);
+          files += sz;
+          if (st.size >= (inLib ? libMinFile : minFile)) bigFiles.push({ path: p, size: sz, mtime: st.mtimeMs });
         } catch { /* ignore */ }
       }
     }
     if (Date.now() - lastSend > 300) { lastSend = Date.now(); send('deep-progress', { visited, label: dir, bigFiles: bigFiles.length, devDirs: devDirs.length }); }
-    await Promise.all(subs.map((s) => walk(s, depth + 1)));
+    const childSizes = await Promise.all(subs.map((s) => walk(s, depth + 1, inLib || norm(s) === LIB)));
+    const total = files + childSizes.reduce((a, b) => a + b, 0);
+    if (total >= 2 ** 30) dirStats.push({ path: dir, size: total, maxChild: Math.max(0, ...childSizes), files });
+    return total;
   };
-  for (const r of roots) await walk(expandVars(r), 0);
+  for (const r of roots) { const rp = expandVars(r); if (await exists(rp)) await walk(rp, 0, norm(rp) === LIB); }
+
+  // 媒体库等“包”整体统计
+  await Promise.all(bundles.map(async (b) => { b.size = (await sizeOf([b.path])).size; }));
 
   // 计算依赖/构建目录大小
   let i = 0;
@@ -369,6 +386,19 @@ async function deepScan(opts) {
   });
   devDirs.filter((d) => d.size >= 20 * 2 ** 20).sort((a, b) => b.size - a.size).forEach((d, k) => {
     const item = { id: `p${k}`, cat: '项目依赖 / 构建产物（深度扫描）', name: `${path.basename(d.parent)} / ${d.kind}`, paths: [d.path], resolved: [d.path], exists: true, size: d.size, level: 'caution', mode: 'whole', note: d.kind === 'node_modules' ? '依赖目录，删除后在项目里重新 npm/pnpm install 即可。' : '构建产物或缓存，可重新生成。仍在开发的项目建议保留。', dynamic: true };
+    scanned.set(item.id, item); items.push(publicItem(item));
+  });
+  // 空间集中点：≥2 GiB，且没有哪个子目录占到它的 60% 以上（否则应该往下看子目录）
+  const homeN = norm(HOME);
+  const hot = dirStats
+    .filter((d) => d.size >= 2 * 2 ** 30 && d.maxChild < d.size * 0.6 && norm(d.path) !== homeN)
+    .sort((a, b) => b.size - a.size).slice(0, 40);
+  hot.forEach((d, k) => {
+    const item = { id: `h${k}`, cat: '空间集中的目录（深度扫描）', name: path.basename(d.path), paths: [d.path], resolved: [d.path], exists: true, size: d.size, level: 'review', mode: 'contents', note: d.files > d.size * 0.5 ? '大部分空间是这个目录里直接存放的文件，点开按大小排序检查。' : '空间分散在多个子目录中，点开逐层查看。', dynamic: true };
+    scanned.set(item.id, item); items.push(publicItem(item));
+  });
+  bundles.filter((b) => b.size >= 2 ** 30).sort((a, b) => b.size - a.size).forEach((b, k) => {
+    const item = { id: `m${k}`, cat: '空间集中的目录（深度扫描）', name: path.basename(b.path), paths: [b.path], resolved: [b.path], exists: true, size: b.size, level: 'review', mode: 'whole', note: /photoslibrary/i.test(b.path) ? '照片图库。可在“照片 → 设置 → iCloud”开启“优化 Mac 储存空间”，不要直接删除里面的文件。' : '媒体库/工程包，请在对应应用内管理。', dynamic: true };
     scanned.set(item.id, item); items.push(publicItem(item));
   });
   return { items, visited, aborted: deepAbort };
@@ -447,6 +477,27 @@ ipcMain.handle('trash-path', async (e, p) => {
   try { assertDeletable(p); await shell.trashItem(p); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; }
 });
 ipcMain.handle('clean', (e, ids, opts) => clean(ids, opts));
+ipcMain.handle('space-overview', async () => {
+  const vol = async (name, mp) => {
+    try { const st = await fsp.statfs(mp); return { name, mount: mp, used: (st.blocks - st.bfree) * st.bsize }; } catch { return null; }
+  };
+  const out = { volumes: [], snapshots: [] };
+  if (IS_MAC) {
+    out.volumes = (await Promise.all([
+      vol('数据卷（你的文件、应用、缓存）', '/System/Volumes/Data'), vol('macOS 系统卷（只读，不可清理）', '/'),
+      vol('虚拟内存 / 交换文件', '/System/Volumes/VM'), vol('Preboot（启动与系统更新）', '/System/Volumes/Preboot'),
+      vol('系统更新暂存', '/System/Volumes/Update'),
+    ])).filter(Boolean);
+    const r = await run('tmutil', ['listlocalsnapshots', '/']);
+    out.snapshots = r.stdout.split('\n').filter((l) => /com\.apple/.test(l)).map((l) => l.trim());
+  } else if (IS_WIN) {
+    const root = path.parse(HOME).root;
+    out.volumes = [await vol(`系统盘 ${root}`, root)].filter(Boolean);
+  } else {
+    out.volumes = [await vol('根分区', '/')].filter(Boolean);
+  }
+  return out;
+});
 ipcMain.handle('disk-usage', async () => {
   try {
     const root = IS_WIN ? path.parse(HOME).root : '/';
