@@ -18,7 +18,11 @@ exports.default = async (ctx) => {
   if (!dir) { console.warn('rcedit-x64.exe 未找到，跳过写入图标'); return; }
   const ico = path.join(ctx.packager.info.projectDir, 'build', 'icon.ico');
   const v = ctx.packager.appInfo.version;
+  try {
   execFileSync('wine', [path.join(base, dir, 'rcedit-x64.exe'), exe, '--set-icon', ico,
     '--set-version-string', 'FileDescription', 'OneClickCleaner', '--set-version-string', 'ProductName', 'OneClickCleaner',
     '--set-version-string', 'CompanyName', 'yaogame', '--set-file-version', v, '--set-product-version', v], { stdio: 'inherit', env: { ...process.env, WINEDEBUG: '-all' } });
+  } catch (e) {
+    console.warn('wine 运行 rcedit 失败，exe 将使用默认图标：', e.message.split('\n')[0]);
+  }
 };

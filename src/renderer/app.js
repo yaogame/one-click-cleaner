@@ -397,6 +397,11 @@ function browser(it) {
   if (adv) box.append(el('div', { class: `advice v-${adv.verdict}` }, el('b', {}, VERDICT[adv.verdict]), ' ', adv.text));
   const isMac = state.info.platform === 'darwin';
   const zeroish = o.data && o.data.items.length && o.data.items.every((c) => !c.size);
+  if (state.info.platform === 'win32' && !state.admin && o.data && (o.data.denied || zeroish || (o.data.error && !o.data.items.length))) {
+    box.append(el('div', { class: 'advice v-care' }, '这个目录有部分内容需要管理员权限才能读取，显示的大小偏小。 ',
+      el('button', { class: 'btn sm', onclick: () => api.relaunchAdmin() }, '以管理员身份重新启动'),
+      el('span', { class: 'muted' }, '（会弹出用户账户控制提示，重启后重新扫描）')));
+  }
   if (isMac && o.data && !o.data.admin && (o.data.denied || zeroish || (o.data.error && !o.data.items.length))) {
     box.append(el('div', { class: 'advice v-care' }, '这个目录有部分内容没有读取权限，显示的大小偏小。 ',
       el('button', { class: 'btn sm', onclick: () => loadDir(it.id, true) }, '用管理员权限统计大小'),
@@ -494,14 +499,39 @@ function adviceFor(p) {
 }
 function winAdvice(p) {
   if (!p || state.info.platform !== 'win32') return null;
-  const l = p.toLowerCase();
-  if (/^c:\\windows\\(winsxs|system32|syswow64)/.test(l)) return { verdict: 'no', text: '系统核心组件，不要手动删除。WinSxS 可用系统工具里的 DISM 组件清理。' };
-  if (/^c:\\windows\\(temp|softwaredistribution\\download)/.test(l)) return { verdict: 'ok', text: '临时文件 / 更新下载缓存，可以清理（需要管理员）。' };
-  if (/^c:\\windows/.test(l)) return { verdict: 'no', text: '系统目录，不建议手动删除，请用“磁盘清理”。' };
-  if (/^c:\\program files/.test(l)) return { verdict: 'no', text: '已安装的软件，请在“设置 → 应用”中卸载，不要直接删文件夹。' };
-  if (/^c:\\programdata/.test(l)) return { verdict: 'care', text: '程序共享数据，删除前确认对应软件已卸载。' };
-  if (/\\appdata\\local\\temp/.test(l)) return { verdict: 'ok', text: '临时文件，可以删除。' };
-  if (/\\appdata\\/.test(l)) return { verdict: 'care', text: '应用数据。名字里带 Cache 的一般可删，其余请在应用内管理。' };
+  const l = p.toLowerCase().replace(/\\+$/, '');
+  const home = (state.info.home || '').toLowerCase();
+  const rules = [
+    [/^[a-z]:\\system volume information/, 'no', '系统还原点 / 卷影副本。不要直接删；在「系统工具 → 查看还原点占用 / 删除旧还原点」处理，或在“系统保护”里调低最大使用量。'],
+    [/^c:\\windows\\winsxs/, 'no', '系统组件存储。资源管理器显示的大小包含大量硬链接，实际占用要小得多。用「系统工具 → 组件存储清理 (DISM)」清理，千万不要手动删。'],
+    [/^c:\\windows\\installer\\\$patchcache\$/, 'care', '补丁卸载缓存，删除后部分补丁无法卸载，需管理员权限。'],
+    [/^c:\\windows\\installer/, 'no', '已安装程序的安装/卸载信息，删除会导致软件无法修复和卸载。'],
+    [/^c:\\windows\\(temp|softwaredistribution\\download|softwaredistribution\\deliveryoptimization|prefetch|minidump|livekernelreports|logs\\cbs|memory\.dmp)/, 'ok', '临时文件 / 更新下载 / 崩溃转储 / 日志，可以清理（需要管理员权限）。用一键清理里的对应项目最方便。'],
+    [/^c:\\windows\\(system32|syswow64|servicing|assembly|microsoft\.net|fonts|boot|drivers)/, 'no', 'Windows 核心组件，删了可能无法开机。'],
+    [/^c:\\windows\.old/, 'care', '升级前的旧系统。用「系统工具 → 磁盘清理」勾选“以前的 Windows 安装”删除（直接删会因权限失败）。确定不回退版本再删。'],
+    [/^c:\\windows/, 'no', '系统目录，不建议手动删除，请用“磁盘清理”或 DISM。'],
+    [/^[a-z]:\\(pagefile|swapfile)\.sys/, 'no', '虚拟内存文件，系统自动管理。可在 系统属性 → 高级 → 性能设置 → 虚拟内存 中调整大小。'],
+    [/^[a-z]:\\hiberfil\.sys/, 'care', '休眠文件。不用休眠/快速启动的话，用「系统工具 → 关闭休眠」释放（不能直接删）。'],
+    [/^[a-z]:\\\$recycle\.bin/, 'ok', '回收站，用一键清理里的“回收站”清空。'],
+    [/^c:\\program files( \(x86\))?\\windowsapps/, 'no', 'Microsoft Store 应用本体，请在 设置 → 应用 中卸载。'],
+    [/^c:\\program files/, 'no', '已安装的软件。请在 设置 → 应用 → 已安装的应用 中卸载，不要直接删文件夹。'],
+    [/^c:\\programdata\\package cache/, 'care', 'Visual Studio / 运行库的安装缓存，删除后修复或卸载这些程序时可能要求原安装包。'],
+    [/^c:\\programdata\\(microsoft\\windows\\wer|nvidia corporation\\downloader)/, 'ok', '错误报告 / 驱动下载残留，可以删除。'],
+    [/^c:\\programdata\\microsoft\\windows\\virtual hard disks/, 'care', 'Hyper-V 虚拟磁盘，在 Hyper-V 管理器中删除不用的虚拟机。'],
+    [/^c:\\programdata/, 'care', '程序共享数据，删除前确认对应软件已卸载。'],
+    [/\\appdata\\local\\temp/, 'ok', '临时文件，可以删除（正在使用的会被跳过）。'],
+    [/\\appdata\\local\\docker\\wsl|\\ext4\.vhdx$/, 'care', 'WSL / Docker 虚拟磁盘，只会变大不会自动缩小。先在 Docker 里 prune，再“关闭 WSL”后用 diskpart 压缩，不要直接删。'],
+    [/\\appdata\\local\\packages\\[^\\]+\\(localcache|ac\\inetcache|ac\\temp)/, 'ok', 'Store 应用缓存，退出应用后可以删除。'],
+    [/\\appdata\\local\\packages/, 'care', 'Microsoft Store 应用的数据（可能包含设置和下载内容），请在应用内或 设置 → 应用 → 高级选项 → 重置 中处理。'],
+    [/\\(cache|code cache|gpucache|cache_data|shadercache|dxcache|glcache|crashdumps|logs?)(\\|$)/, 'ok', '缓存 / 日志，一般可以删除，退出相关应用后再删。'],
+    [/\\appdata\\/, 'care', '应用数据（设置、数据库、聊天记录等）。名字里带 Cache 的一般可删，其余请在应用内管理。'],
+    [/\\node_modules(\\|$)/, 'ok', '项目依赖，删除后在项目里重新 install 即可。'],
+    [/\\(wechat files|xwechat_files|tencent files)/, 'care', '聊天记录与文件，请在微信/QQ 的“存储空间管理”中清理。'],
+    [/\\onedrive(\\|$)/, 'care', 'OneDrive 本地副本。右键 →“释放空间”，不要直接删除（会从云端删除）。'],
+  ];
+  for (const [re, v, t] of rules) if (re.test(l)) return { verdict: v, text: t };
+  if (home && (l === home || l.startsWith(home + '\\'))) return { verdict: 'care', text: '你的个人文件，确认不需要再删除（会移到回收站，可恢复）。' };
+  if (/^[d-z]:\\/.test(l)) return { verdict: 'care', text: '其他磁盘上的文件，确认不需要再删除。' };
   return null;
 }
 function isUserSpace(p) {

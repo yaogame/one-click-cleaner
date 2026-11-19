@@ -220,6 +220,7 @@ function win() {
     T(CAT.space, '程序数据 ProgramData', ['%ProgramData%'], 'info', '所有用户共享的程序数据。', { space: 'data' }),
     T(CAT.space, '页面文件 / 休眠 / 交换', ['C:\\pagefile.sys', 'C:\\hiberfil.sys', 'C:\\swapfile.sys'], 'info', '虚拟内存与休眠文件。关闭休眠可释放 hiberfil.sys。', { space: 'data', mode: 'whole' }),
     T(CAT.space, '公用目录', ['C:\\Users\\Public'], 'info', '所有用户共享的文件。', { space: 'data' }),
+    T(CAT.space, '还原点 System Volume Information', ['C:\\System Volume Information'], 'info', '系统还原点，需要管理员权限才能统计。用系统工具里的“查看还原点占用”。', { space: 'data', admin: true }),
     // 虚拟机 / SDK
     T(CAT.vm, 'VMware / VirtualBox / Hyper-V 虚拟机', ['~\\Documents\\Virtual Machines', '~\\VirtualBox VMs', '%ProgramData%\\Microsoft\\Windows\\Virtual Hard Disks'], 'review', '虚拟机磁盘，在对应软件中删除不用的虚拟机或快照。'),
     T(CAT.vm, 'Android SDK / 模拟器', ['%LOCALAPPDATA%\\Android\\Sdk\\system-images', '~\\.android\\avd'], 'review', '在 Android Studio 中卸载不用的镜像/模拟器。'),
@@ -337,6 +338,10 @@ function tools(platform) {
     { id: 'cleanmgr', name: '磁盘清理 (cleanmgr)', desc: '系统自带磁盘清理，可删除 Windows.old、更新残留', cmd: 'cleanmgr.exe /d C:', detached: true },
     { id: 'dism', name: '组件存储清理 (DISM)', desc: 'DISM /StartComponentCleanup：清理 WinSxS 旧组件（需管理员，耗时较长）', admin: 'Dism.exe /Online /Cleanup-Image /StartComponentCleanup' },
     { id: 'do', name: '清理传递优化缓存', desc: 'Delete-DeliveryOptimizationCache（需管理员）', admin: 'powershell -NoProfile -Command Delete-DeliveryOptimizationCache -Force' },
+    { id: 'vss', name: '查看还原点占用', desc: 'vssadmin list shadowstorage：查看系统还原点（System Volume Information）占了多少空间（需管理员）', admin: 'vssadmin list shadowstorage & vssadmin list shadows' },
+    { id: 'vssold', name: '删除最旧的还原点', desc: 'vssadmin delete shadows /for=C: /oldest：每次删除最旧的一个还原点（需管理员）', admin: 'vssadmin delete shadows /for=C: /oldest' },
+    { id: 'sysprot', name: '打开“系统保护”', desc: '调整还原点最大使用量，或删除全部还原点', cmd: 'SystemPropertiesProtection.exe', detached: true },
+    { id: 'dismscan', name: '分析组件存储 (WinSxS)', desc: 'DISM /AnalyzeComponentStore：查看 WinSxS 实际大小和可回收空间（需管理员）', admin: 'Dism.exe /Online /Cleanup-Image /AnalyzeComponentStore' },
     { id: 'hiber', name: '关闭休眠（删除 hiberfil.sys）', desc: 'powercfg -h off，可释放与内存大小相当的空间（需管理员）', admin: 'powercfg.exe -h off' },
     { id: 'npm', name: 'npm 缓存清理', desc: 'npm cache clean --force', cmd: 'npm cache clean --force' },
     { id: 'docker', name: 'Docker 清理', desc: 'docker system prune -f', cmd: 'docker system prune -f' },
