@@ -145,6 +145,8 @@ function mac() {
 
     // 开发工具
     T(CAT.dev, 'Xcode DerivedData', [`${L}/Developer/Xcode/DerivedData`], 'safe', '编译中间产物，可重建。', { apps: ['Xcode'] }),
+    T(CAT.dev, '测试用模拟器', [`${L}/Developer/XCTestDevices`], 'safe', '跑测试时复制出来的模拟器，自动重建。', { apps: ['Xcode', 'Simulator'] }),
+    T(CAT.dev, 'Playground 模拟器', [`${L}/Developer/XCPGDevices`], 'safe', 'Playground 用的模拟器，自动重建。', { apps: ['Xcode', 'Simulator'] }),
     T(CAT.dev, 'Xcode 预览 / 模块缓存', [`${L}/Developer/Xcode/UserData/Previews`, `${C}/com.apple.dt.Xcode`], 'safe', 'SwiftUI 预览与 Xcode 缓存。', { apps: ['Xcode'] }),
     T(CAT.dev, 'iOS DeviceSupport', [`${L}/Developer/Xcode/iOS DeviceSupport`, `${L}/Developer/Xcode/watchOS DeviceSupport`, `${L}/Developer/Xcode/tvOS DeviceSupport`, `${L}/Developer/Xcode/visionOS DeviceSupport`], 'caution', '真机调试符号，旧系统版本的可删除，连接设备时会重新生成。', { apps: ['Xcode'] }),
     T(CAT.dev, 'Xcode Archives', [`${L}/Developer/Xcode/Archives`], 'review', '归档的发布包（含 dSYM），已上架版本的崩溃符号化需要它。'),
@@ -305,7 +307,9 @@ function discoverySources(platform) {
       { dir: '~/Movies', cat: CAT.dynBig, level: 'review', min: 1024 * 2 ** 20, note: '影片中的大项。' },
       { dir: '~', cat: CAT.home, level: 'info', min: 100 * 2 ** 20, note: '主目录下的一级目录占用（含隐藏目录），仅用于定位空间。', includeHidden: true, totalName: '主目录（全部）' },
       { dir: '/Applications', cat: CAT.dynBig, level: 'review', min: 2 * 1024 * 2 ** 20, note: '体积很大的应用，不用的话可以卸载。' },
-      { dir: '~/Library', cat: CAT.dynBig, level: 'review', min: 2 * 1024 * 2 ** 20, note: '资源库里的大目录。', exclude: ['Caches', 'Application Support', 'Containers', 'Group Containers', 'Logs'] },
+      { dir: '~/Library', cat: CAT.dynBig, level: 'review', min: 2 * 1024 * 2 ** 20, note: '资源库里的大目录。', exclude: ['Caches', 'Application Support', 'Containers', 'Group Containers', 'Logs', 'Developer'] },
+      // 命令行 xcodebuild -derivedDataPath 生成的自建编译目录：整个目录删除
+      { dir: '~/Library/Developer', cat: CAT.dev, level: 'safe', mode: 'whole', min: 0, apps: ['Xcode', 'xcodebuild'], note: '命令行编译时用 -derivedDataPath 生成的目录（如 FilmMeterBuild、JPTransCheck），可重建。', exclude: ['CoreDevice', 'CoreSimulator', 'DVTDownloads', 'Toolchains', 'Xcode', 'XCPGDevices', 'XCTestDevices', 'Shared', 'PrivateFrameworks'] },
     ];
   }
   return [

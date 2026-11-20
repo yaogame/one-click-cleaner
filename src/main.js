@@ -282,11 +282,13 @@ async function scan() {
       for (const c of items) {
         if (c.size < src.min || c.isLink) continue;
         if (src.exclude && src.exclude.includes(c.name)) continue;
+        if (src.mode === 'whole' && !c.isDir) continue; // 整目录删除只针对子目录
         // 已被具体目标覆盖的路径跳过（主目录概览除外，它只用于定位）
         if (src.cat !== '主目录概览' && claimed.some((p) => norm(p) === norm(c.path) || isInside(c.path, p))) continue;
         const item = {
           id: `d${dynId++}`, cat: src.cat, name: prettyName(c.name), paths: [c.path], resolved: [c.path], exists: true,
-          size: c.size, level: src.level, note: src.note, mode: c.isDir ? 'contents' : 'whole', dynamic: true, denied,
+          size: c.size, level: src.level, note: src.note, mode: src.mode || (c.isDir ? 'contents' : 'whole'), dynamic: true, denied,
+          apps: src.apps, parentDir: src.mode === 'whole' ? dir : undefined,
         };
         scanned.set(item.id, item);
         results.push(item);
@@ -428,6 +430,11 @@ async function cleanItem(item, useTrash) {
   }
   const trash = useTrash || item.trashOnly;
   for (const p of item.resolved) {
+    // 自动发现且整目录删除的项目：只允许删除来源目录的直接子项，且必须在用户主目录下
+    if (item.parentDir && (norm(path.dirname(p)) !== norm(item.parentDir) || !isInside(p, HOME))) {
+      errors.push(`${p}: 不是 ${item.parentDir} 的直接子目录或不在主目录下，已拒绝`);
+      continue;
+    }
     let st;
     try { st = await fsp.lstat(p); } catch { continue; }
     if ((item.mode === 'contents' || item.mode === 'mixed') && st.isDirectory()) {

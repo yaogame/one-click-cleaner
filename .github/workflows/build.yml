@@ -1,7 +1,7 @@
 name: build
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
 jobs:
   mac:
@@ -12,6 +12,9 @@ jobs:
         with: { node-version: 22 }
       - run: npm ci
       - run: npx electron-builder --mac dmg --arm64 --x64
+      - name: 校验签名
+        run: |
+          for app in dist/mac*/*.app; do codesign --verify --deep --verbose=2 "$app"; done
       - uses: actions/upload-artifact@v4
         with: { name: mac-dmg, path: dist/*.dmg }
   win:
